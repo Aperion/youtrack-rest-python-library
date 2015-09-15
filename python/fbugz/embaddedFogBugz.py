@@ -28,4 +28,12 @@ fbugz.CF_TYPES = {
     u'Type'              :   'enum[1]'
 }
 
-fbugz.PROJECTS_TO_IMPORT = ["Inbox"]
+fbugz.PROJECTS_TO_IMPORT = ["ESPRIT"]
+
+fbugz.PROJECT_ID_MAP = {
+    u'5': u'ESPRIT'
+}
+
+fbugz.PROJECTS = {
+    u'ESPRIT': fbugz.FBProject(u'ESPRIT', u'ESPRIT', u'Tania_Campanelli')
+}

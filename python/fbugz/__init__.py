@@ -9,6 +9,9 @@ CF_NAMES = dict([])
 CF_TYPES = dict([])
 CF_VALUES = dict([])
 PROJECTS_TO_IMPORT = list([])
+PROJECT_ID_MAP = dict([])
+PROJECTS = dict([])
+
 
 class FBArea(object) :
     def __init__(self, name) :
@@ -92,4 +95,11 @@ class FBComment(object) :
         self.author = 'guest'
         self.date = time()
         self.text = ''
+
+class FBProject(object):
+    def __init__(self, name, _id, lead):
+        self.name = name
+        self.id = _id
+        self.desc = 'No description'
+        self.lead = lead
 

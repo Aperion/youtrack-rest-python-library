@@ -22,7 +22,10 @@ def main() :
         print "Usage : "
         print "fb2youtrack.py target_url target_login target_password source_url source_login source_password max_issue_id project_names"
         sys.exit()
-    project_names = fbugz.PROJECTS_TO_IMPORT
+    if len(sys.argv) >= 9:
+        project_names = sys.argv[8:]
+    else:
+        project_names = fbugz.PROJECTS_TO_IMPORT
     if not source_url.endswith("/") :
         source_url += "/"
     fb2youtrack(target_url, target_login, target_password, source_url, source_login, source_password, project_names, max_issue_id)
@@ -91,7 +94,11 @@ def add_field_values_to_bundle(connection, bundle, field_values):
     missing_names = calculate_missing_value_names(bundle, [value.name for value in field_values])
     for value in field_values:
         if value.name in missing_names:
-            connection.addValueToBundle(bundle, value)
+            try:
+                connection.addValueToBundle(bundle, value)
+            except YouTrackException, e:
+                if e.response.status == 409:
+                    print "Duplicate field value: " + str(value)
 
 def _do_import_users(target, users_to_import):
     target.importUsers(users_to_import)
@@ -215,82 +222,121 @@ def fb2youtrack(target_url, target_login, target_password, source_url, source_lo
 
     # to handle linked issues
     try :
-        target.createIssueLinkTypeDetailed('parent-child', 'child of', 'parent of', True)
+        pass #target.createIssueLinkTypeDetailed('parent-child', 'child of', 'parent of', True)
     except YouTrackException:
         print "Can't create issue link type [ parent-child ] (maybe because it already exists)"
     links_to_import = []
 
-    for project_name in project_names :
+    for project_name in project_names:
         value_sets = dict([])
 
-        project_id = accessible_projects[project_name]
-        print 'Importing project [ %s ]' % project_name
-        target.createProjectDetailed(project_id, project_name.encode('utf-8'), 'no description', 'root')
+        if project_name in fbugz.PROJECTS.keys():
+            project = fbugz.PROJECTS[project_name]
+        else:
+            project = fbugz.FBProject(project_name, accessible_projects[project_name], u'root')
 
-        print 'Creating custom fields in project [ %s ]' % project_name
+        print 'Importing project [ %s -> %s ]' % (project.name, project.id)
+        target.createProjectDetailed(project.id, project.name, project.desc, project.lead)
+
+        print 'Creating custom fields in project [ %s ]' % project.name
 
         for cf_name in common_fields:
             bundle_name = common_fields[cf_name]
             cf_name = get_yt_name_from_fb_field_name(cf_name)
-            target.deleteProjectCustomField(project_id, cf_name)
-            target.createProjectCustomFieldDetailed(project_id, cf_name, 'No ' + cf_name.lower(),
+
+            print 'Creating common field in project [ %s: %s ]' % (project.name, cf_name)
+            target.deleteProjectCustomField(project.id, cf_name)
+            target.createProjectCustomFieldDetailed(project.id, cf_name, 'No ' + cf_name.lower(),
                     {'bundle' : bundle_name})
 
         for cf_name in simple_fields:
             cf_name = get_yt_name_from_fb_field_name(cf_name)
             try:
-                target.createProjectCustomFieldDetailed(project_id, cf_name, 'No ' + cf_name.lower())
+                print "Creating simple field in project [ %s: %s ]" % (project.name, cf_name)
+                target.createProjectCustomFieldDetailed(project.id, cf_name, 'No ' + cf_name.lower())
             except YouTrackException:
-                print "Can't create custom field with name [%s]" % cf_name
+                print "    Can't create custom field with name [%s]" % cf_name
         cf_name = get_yt_name_from_fb_field_name('fix_for')
-        milestones = source.get_milestones(project_id)
+        milestones = source.get_milestones(project.id)
         value_sets["fix_for"] = []
         for milestone in milestones:
+            print 'Setting fix_for field [ %s: %s ]' % (project.name, milestone.name)
             value_sets["fix_for"].append(milestone.name)
             milestone.name = to_yt_field_value('fix_for', milestone.name)
-        add_values_to_field(target, cf_name, project_id, milestones,
+        add_values_to_field(target, cf_name, project.id, milestones,
                             lambda bundle, value: _to_yt_version(bundle, value))
 
         cf_name = get_yt_name_from_fb_field_name('area')
-        areas = source.get_areas(project_id)
+        areas = source.get_areas(project.id)
         value_sets["area"] = []
         for area in areas:
+            print "Setting 'area' field [ %s: %s ]" % (project.name, area.name)
             value_sets["area"].append(area.name)
             area.name = to_yt_field_value('area', area.name)
-        add_values_to_field(target, cf_name, project_id, areas,
+        add_values_to_field(target, cf_name, project.id, areas,
                             lambda bundle, value: _to_yt_subsystem(bundle, value))
 
-        print 'Importing issues for project [ %s ]' % project_name
+        print 'Importing issues for project [ %s ]' % project.name
         start = 0
+        increment = 1
         issues_to_import = []
         # create dictionary with child : parent pairs
+        done_ids = []
+        pending_children = {}
         while start <= max_issue_id:
-            fb_issues = source.get_issues(project_name, start, 30)
+            fb_issues = source.get_issues(project.name, start, increment)
             for issue in fb_issues :
-                add_values_to_field(target, get_yt_name_from_fb_field_name('area'), project_id,
+                full_issue_id = '%s-%s' % (project.id, issue.ix_bug)
+                print 'Importing [ %s -> %s : %s ]' % (issue.ix_bug, full_issue_id, issue.title)
+                add_values_to_field(target, get_yt_name_from_fb_field_name('area'), project.id,
                     [issue.field_values['area']], lambda bundle, value: bundle.createElement(value))
                 issues_to_import.append(_to_yt_issue(issue, value_sets))
-            target.importIssues(project_id, project_name.encode('utf-8') + " assignees", issues_to_import)
+                done_ids += [full_issue_id]
+            target.importIssues(project.id, project.name.encode('utf-8') + " assignees", issues_to_import)
             for issue in fb_issues :
-                full_issue_id = '%s-%s' % (project_id, issue.ix_bug)
+                full_issue_id = '%s-%s' % (project.id, issue.ix_bug)
                 for attach in issue.attachments :
+                    print '    Adding attachment [ %s ]' % attach.name
                     target.createAttachmentFromAttachment(full_issue_id, attach)
                 for tag in issue.tags :
+                    print '    Adding tag [ %s ]' % tag
                     target.executeCommand(full_issue_id, 'tag ' + tag)
                 if issue.bug_parent is not None:
-                    parent_issue_id = '%s-%s' % (source.get_issue_project_id(issue.bug_parent), issue.bug_parent)
-                    link = Link()
-                    link.typeName = 'parent-child'
-                    link.source = full_issue_id
-                    link.target = parent_issue_id
-                    links_to_import.append(link)
-            issues_to_import = []
-            start += 30
-        print 'Importing issues for project [ %s ] finished' % project_name
 
-    print 'Importing issue links'
-    print target.importLinks(links_to_import)
-    print 'Importing issue links finished'
+                    parent_id = source.get_issue_project_id(issue.bug_parent)
+                    if parent_id in fbugz.PROJECT_ID_MAP.keys():
+                        parent_id = fbugz.PROJECT_ID_MAP[parent_id]
+                    if parent_id in fbugz.PROJECTS.keys():
+                        parent_id = fbugz.PROJECTS[parent_id].id
+
+                    parent_issue_id = '%s-%s' % (parent_id, issue.bug_parent)
+                    link = Link()
+                    link.typeName = 'Subtask'
+                    link.source = parent_issue_id
+                    link.target = full_issue_id
+                    if parent_issue_id in done_ids:
+                        print '    Adding parent [ %s ]' % parent_issue_id
+                        target.importLinks([link])
+                    else:
+                        print '    Queue parent [ %s ]' % parent_issue_id
+                        if parent_issue_id in pending_children.keys():
+                            pending_children[parent_issue_id] += [link]
+                        else:
+                            pending_children[parent_issue_id] = [link]
+
+                if full_issue_id in pending_children.keys():
+                    for child in pending_children[full_issue_id]:
+                        print '    Adding child [ %s ]' % parent_issue_id
+                        target.importLinks([child])
+                    pending_children[full_issue_id] = []
+            issues_to_import = []
+            start += increment
+        print 'Importing issues for project [ %s ] finished' % project.name
+
+    if len(links_to_import) > 0:
+        print 'Importing issue links'
+        print target.importLinks(links_to_import)
+        print 'Importing issue links finished'
 
 if __name__ == '__main__':
     main()

@@ -431,7 +431,8 @@ class Connection(object):
                 id = item.attributes["id"].value
                 imported = item.attributes["imported"].value.lower()
                 if imported == "true":
-                    print "Issue [ %s-%s ] imported successfully" % (projectId, id)
+                    pass
+                    # print "Issue [ %s-%s ] imported successfully" % (projectId, id)
                 else:
                     sys.stderr.write("")
                     sys.stderr.write("Failed to import issue [ %s-%s ]." % (projectId, id))
@@ -442,7 +443,6 @@ class Connection(object):
                         sys.stderr.write(issue_records[id].encode('utf-8'))
                     else:
                         sys.stderr.write(issue_records[id])
-                print ""
         return response
 
     def getProjects(self):
