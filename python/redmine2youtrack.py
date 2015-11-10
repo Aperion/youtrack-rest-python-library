@@ -200,8 +200,12 @@ class RedmineImporter(object):
             except AttributeError:
                 pass
             try:
+                # In some cases redmine user login can be empty or missing.
+                # So, both cases should be handled.
                 user.login = redmine_user.login
             except AttributeError:
+                pass
+            if not hasattr(user, login) or not user.login:
                 if hasattr(user, 'email'):
                     user.login = user.email
                 else:
@@ -560,6 +564,8 @@ class RedmineImporter(object):
             return
         for attach in issue.attachments:
             attach.author.login = self._create_user(attach.author).login
+            if not attach.author.login:
+                attach.author.login = 'guest'
             self._target.createAttachmentFromAttachment(
                 self._get_yt_issue_id(issue),
                 RedmineAttachment(attach, self._source))
@@ -573,6 +579,9 @@ class RedmineImporter(object):
         }
         if hasattr(issue, 'relations'):
             for rel in issue.relations:
+                if rel.relation_type not in link_types:
+                    print 'Unsuitable link type: %s. Skipped' % rel.relation_type
+                    continue
                 from_id = rel.issue_id
                 to_id = rel.issue_to_id
                 if rel.relation_type == 'duplicates':

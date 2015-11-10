@@ -225,7 +225,7 @@ def process_mantis_custom_field(connection, mantis_cf_def):
     yt_cf_type = mantis.CF_TYPES[mantis_cf_def.type]
     yt_name = mantis.FIELD_NAMES[mantis_cf_def.name] if mantis_cf_def.name in mantis.FIELD_NAMES else mantis_cf_def.name
     if yt_name in mantis.FIELD_TYPES:
-        yt_cf_type = mantis.FIELD_NAMES[yt_name]
+        yt_cf_type = mantis.FIELD_TYPES[yt_name]
     create_custom_field(connection, yt_cf_type, yt_name, False)
 
 
@@ -342,7 +342,7 @@ def mantis2youtrack(target_url, target_login, target_pass, mantis_db_name, manti
     target = Connection(target_url, target_login, target_pass)
     #connacting to mantis
     client = MantisClient(mantis_db_host, int(mantis_db_port), mantis_db_login,
-        mantis_db_pass, mantis_db_name, mantis.CHARSET)
+        mantis_db_pass, mantis_db_name, mantis.CHARSET, mantis.BATCH_SUBPROJECTS)
     if not len(mantis_project_names):
         print "You should declarer at least one project to import"
         sys.exit()
