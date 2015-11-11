@@ -225,7 +225,6 @@ def fb2youtrack(target_url, target_login, target_password, source_url, source_lo
         pass #target.createIssueLinkTypeDetailed('parent-child', 'child of', 'parent of', True)
     except YouTrackException:
         print "Can't create issue link type [ parent-child ] (maybe because it already exists)"
-    links_to_import = []
 
     for project_name in project_names:
         value_sets = dict([])
@@ -278,27 +277,30 @@ def fb2youtrack(target_url, target_login, target_password, source_url, source_lo
 
         print 'Importing issues for project [ %s ]' % project.name
         start = 0
-        increment = 1
         issues_to_import = []
         # create dictionary with child : parent pairs
         done_ids = []
         pending_children = {}
         while start <= max_issue_id:
-            fb_issues = source.get_issues(project.name, start, increment)
-            for issue in fb_issues :
+            fb_issues = source.get_issues(project.name, start, 1)
+            for issue in fb_issues:
                 full_issue_id = '%s-%s' % (project.id, issue.ix_bug)
                 print 'Importing [ %s -> %s : %s ]' % (issue.ix_bug, full_issue_id, issue.title)
                 add_values_to_field(target, get_yt_name_from_fb_field_name('area'), project.id,
                     [issue.field_values['area']], lambda bundle, value: bundle.createElement(value))
                 issues_to_import.append(_to_yt_issue(issue, value_sets))
                 done_ids += [full_issue_id]
-            target.importIssues(project.id, project.name.encode('utf-8') + " assignees", issues_to_import)
-            for issue in fb_issues :
-                full_issue_id = '%s-%s' % (project.id, issue.ix_bug)
+
+                target.importIssues(project.id, project.name.encode('utf-8') + " assignees", issues_to_import)
+
                 for attach in issue.attachments :
                     print '    Adding attachment [ %s ]' % attach.name
-                    target.createAttachmentFromAttachment(full_issue_id, attach)
-                for tag in issue.tags :
+                    try:
+                        target.createAttachmentFromAttachment(full_issue_id, attach)
+                    except Exception, e:
+                        print '    Adding attachment failed [ %s ]: %s' % attach.name, e.message
+
+                for tag in issue.tags:
                     print '    Adding tag [ %s ]' % tag
                     target.executeCommand(full_issue_id, 'tag ' + tag)
                 if issue.bug_parent is not None:
@@ -328,15 +330,17 @@ def fb2youtrack(target_url, target_login, target_password, source_url, source_lo
                     for child in pending_children[full_issue_id]:
                         print '    Adding child [ %s ]' % parent_issue_id
                         target.importLinks([child])
-                    pending_children[full_issue_id] = []
-            issues_to_import = []
-            start += increment
-        print 'Importing issues for project [ %s ] finished' % project.name
+                    del pending_children[full_issue_id]
 
-    if len(links_to_import) > 0:
-        print 'Importing issue links'
-        print target.importLinks(links_to_import)
-        print 'Importing issue links finished'
+                start += 1
+
+            issues_to_import = []
+        print 'Importing issues for project [ %s ] finished' % project.name
+        for (parent, children) in pending_children.values():
+            print '    Parent not found [ %s ]' % parent
+            for child in children:
+                print '    Issue has been orphaned [ %s ]' % child.target
+
 
 if __name__ == '__main__':
     main()
